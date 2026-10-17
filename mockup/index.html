@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Citrol</title>
+<style>
+  :root {
+    /* surfaces, darkest to lightest */
+    --bg-rail: #041114;
+    --bg-sidebar: #08191d;
+    --bg-chat: #0b2126;
+    --bg-raised: #102c33;
+    --bg-hover: #14363e;
+    --bg-input: #12313a;
+    --border: #1b414a;
+
+    /* text */
+    --text: #dcf5f8;
+    --text-muted: #86b2b9;
+    --text-faint: #557f87;
+
+    /* cyan accent */
+    --accent: #22d3ee;
+    --accent-strong: #06b6d4;
+    --accent-ink: #032a31;
+    --accent-soft: rgba(34, 211, 238, 0.12);
+    --accent-softer: rgba(34, 211, 238, 0.06);
+
+    /* status */
+    --online: #2dd4bf;
+    --idle: #fbbf24;
+    --danger: #fb7185;
+
+    --radius: 8px;
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    background: var(--bg-chat);
+    color: var(--text);
+    font: 15px/1.45 var(--font);
+    display: grid;
+    grid-template-columns: 240px 1fr 240px;
+    overflow: hidden;
+  }
+
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  svg { width: 20px; height: 20px; flex: none; }
+
+  /* ---------- channel sidebar ---------- */
+  .sidebar { background: var(--bg-sidebar); display: flex; flex-direction: column; min-width: 0; }
+  .server-header {
+    height: 48px; padding: 0 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-weight: 700; border-bottom: 1px solid var(--border);
+  }
+  .channels { flex: 1; overflow-y: auto; padding: 16px 8px; }
+  .category {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 8px 4px; margin-top: 16px;
+    font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .category:first-child { margin-top: 0; }
+  .category svg { width: 16px; height: 16px; }
+  .category button:hover { color: var(--text); }
+  .channel {
+    display: flex; align-items: center; gap: 6px;
+    width: 100%; padding: 6px 8px; margin: 1px 0;
+    border-radius: 6px; color: var(--text-faint); text-align: left;
+  }
+  .channel svg { width: 18px; height: 18px; }
+  .channel span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .channel:hover { background: var(--bg-hover); color: var(--text-muted); }
+  .channel.unread { color: var(--text); font-weight: 600; }
+  .channel.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .badge {
+    min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+    background: var(--accent); color: var(--accent-ink);
+    font-size: 11px; font-weight: 800; display: grid; place-items: center;
+  }
+
+  .me {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px; background: var(--bg-rail);
+  }
+  .me .who { flex: 1; min-width: 0; line-height: 1.2; }
+  .me .who b { display: block; font-size: 14px; }
+  .me .who small { color: var(--text-faint); font-size: 12px; }
+  .icon-btn { padding: 6px; border-radius: 6px; color: var(--text-muted); display: grid; place-items: center; }
+  .icon-btn:hover { background: var(--bg-hover); color: var(--text); }
+
+  /* ---------- avatars ---------- */
+  .avatar {
+    position: relative; flex: none;
+    width: 40px; height: 40px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-weight: 700; font-size: 15px; color: var(--accent-ink);
+  }
+  .avatar.sm { width: 32px; height: 32px; font-size: 13px; }
+  .avatar .status {
+    position: absolute; right: -2px; bottom: -2px;
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 3px solid var(--bg-sidebar); background: var(--text-faint);
+  }
+  .me .avatar .status { border-color: var(--bg-rail); }
+  .status.online { background: var(--online); }
+  .status.idle { background: var(--idle); }
+  .c1 { background: #22d3ee; } .c2 { background: #5eead4; } .c3 { background: #93c5fd; }
+  .c4 { background: #a5b4fc; } .c5 { background: #f9a8d4; } .c6 { background: #fcd34d; }
+
+  /* ---------- chat ---------- */
+  .chat { display: flex; flex-direction: column; min-width: 0; }
+  .chat-header {
+    height: 48px; padding: 0 16px; flex: none;
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .chat-header .name { font-weight: 700; }
+  .chat-header .hash { color: var(--text-faint); }
+  .chat-header .topic {
+    flex: 1; min-width: 0; color: var(--text-muted); font-size: 14px;
+    padding-left: 12px; margin-left: 4px; border-left: 1px solid var(--border);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .search {
+    display: flex; align-items: center; gap: 6px;
+    width: 160px; padding: 4px 8px; border-radius: 6px;
+    background: var(--bg-rail); color: var(--text-faint); font-size: 13px;
+  }
+  .search svg { width: 14px; height: 14px; }
+
+  .messages { flex: 1; overflow-y: auto; padding: 16px 0 8px; }
+
+  .welcome { padding: 16px 16px 24px; }
+  .welcome .big-hash {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    display: grid; place-items: center; margin-bottom: 8px;
+  }
+  .welcome .big-hash svg { width: 36px; height: 36px; }
+  .welcome h1 { margin: 0 0 4px; font-size: 28px; }
+  .welcome p { margin: 0; color: var(--text-muted); }
+
+  .divider {
+    display: flex; align-items: center; gap: 8px;
+    margin: 16px 16px 8px; font-size: 12px; font-weight: 600; color: var(--text-faint);
+  }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .divider.new { color: var(--danger); }
+  .divider.new::before, .divider.new::after { background: var(--danger); opacity: .6; }
+
+  .msg {
+    position: relative;
+    display: flex; gap: 16px;
+    padding: 2px 16px 2px 16px; margin-top: 14px;
+  }
+  .msg.cont { margin-top: 0; padding-left: 72px; }
+  .msg:hover { background: var(--accent-softer); }
+  .msg .body { min-width: 0; flex: 1; }
+  .msg .head { display: flex; align-items: baseline; gap: 8px; }
+  .msg .author { font-weight: 600; }
+  .msg time { font-size: 12px; color: var(--text-faint); }
+  .msg.cont time {
+    position: absolute; left: 16px; top: 5px; width: 44px;
+    font-size: 11px; text-align: right; visibility: hidden;
+  }
+  .msg.cont:hover time { visibility: visible; }
+  .msg p { margin: 0; overflow-wrap: anywhere; }
+  .msg .edited { font-size: 11px; color: var(--text-faint); }
+
+  .msg.mentioned { background: var(--accent-soft); box-shadow: inset 2px 0 var(--accent); }
+  .mention {
+    padding: 0 3px; border-radius: 4px;
+    background: var(--accent-soft); color: var(--accent); font-weight: 500;
+  }
+  .mention:hover { background: var(--accent); color: var(--accent-ink); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font: 13px var(--mono); padding: 1px 4px; border-radius: 4px;
+    background: var(--bg-rail);
+  }
+  pre {
+    margin: 6px 0 0; padding: 10px 12px; max-width: 640px;
+    border-radius: var(--radius); border: 1px solid var(--border);
+    background: var(--bg-rail); overflow-x: auto;
+    font: 13px/1.5 var(--mono);
+  }
+  pre .k { color: var(--accent); } pre .s { color: #5eead4; } pre .c { color: var(--text-faint); }
+
+  .reactions { display: flex; gap: 4px; margin-top: 4px; }
+  .reaction {
+    display: flex; align-items: center; gap: 6px;
+    padding: 1px 8px; border-radius: 8px; font-size: 13px;
+    background: var(--bg-raised); border: 1px solid transparent;
+  }
+  .reaction b { font-weight: 600; color: var(--text-muted); }
+  .reaction.mine { background: var(--accent-soft); border-color: var(--accent-strong); }
+  .reaction.mine b { color: var(--accent); }
+  .reaction:hover { border-color: var(--text-faint); }
+
+  .msg-tools {
+    position: absolute; right: 16px; top: -14px;
+    display: none; padding: 2px;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px;
+  }
+  .msg:hover .msg-tools { display: flex; }
+  .msg-tools .icon-btn { padding: 4px; }
+  .msg-tools svg { width: 18px; height: 18px; }
+
+  .composer { padding: 0 16px; flex: none; }
+  .composer-box {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 8px 0 12px; border-radius: var(--radius);
+    background: var(--bg-input); border: 1px solid transparent;
+  }
+  .composer-box:focus-within { border-color: var(--accent-strong); }
+  .composer-box input {
+    flex: 1; min-width: 0; height: 44px;
+    background: none; border: 0; outline: 0;
+    color: var(--text); font: inherit;
+  }
+  .composer-box input::placeholder { color: var(--text-faint); }
+  .typing { height: 24px; padding-left: 4px; font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+  .typing .dots { display: inline-flex; gap: 3px; }
+  .typing .dots i {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+    animation: blink 1.2s infinite ease-in-out;
+  }
+  .typing .dots i:nth-child(2) { animation-delay: .2s; }
+  .typing .dots i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+  /* ---------- member list ---------- */
+  .members { background: var(--bg-sidebar); overflow-y: auto; padding: 16px 8px; }
+  .members h3 {
+    margin: 16px 8px 4px; font-size: 12px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--text-faint);
+  }
+  .members h3:first-child { margin-top: 0; }
+  .member {
+    display: flex; align-items: center; gap: 10px;
+    padding: 5px 8px; border-radius: 6px;
+  }
+  .member:hover { background: var(--bg-hover); }
+  .member .who { line-height: 1.2; min-width: 0; }
+  .member .who b { display: block; font-weight: 500; font-size: 14px; }
+  .member .who small { color: var(--text-faint); font-size: 12px; }
+  .member.offline { opacity: .4; }
+
+  /* ---------- narrow screens ---------- */
+  @media (max-width: 1100px) {
+    body { grid-template-columns: 240px 1fr; }
+    .members { display: none; }
+  }
+  @media (max-width: 720px) {
+    body { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+    .search { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-hash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 9h15M4 15h15M10 3 8 21M16 3l-2 18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 10.8V4h6v6.8l3 3.2v3H6v-3z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-smile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></symbol>
+  <symbol id="i-reply" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17 4 12l5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4zM22 2 11 13"/></symbol>
+</svg>
+
+<!-- channel sidebar -->
+<aside class="sidebar">
+  <header class="server-header">Citrol</header>
+  <div class="channels">
+    <div class="category">Info <button title="Create channel"><svg><use href="#i-plus"/></svg></button></div>
+    <button class="channel"><svg><use href="#i-hash"/></svg><span>welcome</span></button>
+    <button class="channel"><svg><use href="#i-hash"/></svg><span>announcements</span></button>
+
+    <div class="category">Text channels <button title="Create channel"><svg><use href="#i-plus"/></svg></button></div>
+    <button class="channel active"><svg><use href="#i-hash"/></svg><span>general</span></button>
+    <button class="channel unread"><svg><use href="#i-hash"/></svg><span>bun-questions</span><i class="badge">2</i></button>
+    <button class="channel unread"><svg><use href="#i-hash"/></svg><span>showcase</span></button>
+    <button class="channel"><svg><use href="#i-hash"/></svg><span>homework</span></button>
+    <button class="channel"><svg><use href="#i-hash"/></svg><span>off-topic</span></button>
+  </div>
+  <div class="me">
+    <div class="avatar sm c1">T<i class="status online"></i></div>
+    <div class="who"><b>teacher</b><small>Online</small></div>
+    <button class="icon-btn" title="Settings"><svg><use href="#i-gear"/></svg></button>
+  </div>
+</aside>
+
+<!-- chat -->
+<main class="chat">
+  <header class="chat-header">
+    <svg class="hash"><use href="#i-hash"/></svg>
+    <span class="name">general</span>
+    <span class="topic">Talk about anything. Be kind. Ship things.</span>
+    <button class="icon-btn" title="Notifications"><svg><use href="#i-bell"/></svg></button>
+    <button class="icon-btn" title="Pinned messages"><svg><use href="#i-pin"/></svg></button>
+    <button class="icon-btn" title="Members"><svg><use href="#i-users"/></svg></button>
+    <div class="search"><svg><use href="#i-search"/></svg>Search</div>
+  </header>
+
+  <section class="messages">
+    <div class="welcome">
+      <div class="big-hash"><svg><use href="#i-hash"/></svg></div>
+      <h1>Welcome to #general!</h1>
+      <p>This is the start of the #general channel.</p>
+    </div>
+
+    <div class="divider">October 16, 2026</div>
+
+    <div class="msg">
+      <div class="avatar c1">T</div>
+      <div class="body">
+        <div class="head"><span class="author">teacher</span><time>Yesterday at 18:04</time></div>
+        <p>Welcome to Citrol! For now it's text channels only. Voice can wait.</p>
+      </div>
+    </div>
+    <div class="msg cont">
+      <time>18:04</time>
+      <p>The stack: TypeScript on <a href="#">Bun</a>, PostgreSQL for data, deployed with Coolify.</p>
+    </div>
+
+    <div class="msg">
+      <div class="avatar c2">M</div>
+      <div class="body">
+        <div class="head"><span class="author">mira</span><time>Yesterday at 18:07</time></div>
+        <p>does that mean we write the websocket part ourselves?</p>
+      </div>
+    </div>
+
+    <div class="divider">October 17, 2026</div>
+
+    <div class="msg">
+      <div class="avatar c3">D</div>
+      <div class="body">
+        <div class="head"><span class="author">devon</span><time>Today at 19:02</time></div>
+        <p>Bun has pub/sub built into <code>Bun.serve</code>. One topic per channel:</p>
+        <pre><span class="c">// every socket in #general gets this</span>
+ws.<span class="k">subscribe</span>(<span class="s">"channel:general"</span>);
+server.<span class="k">publish</span>(<span class="s">"channel:general"</span>, JSON.stringify(msg));</pre>
+        <div class="reactions">
+          <button class="reaction mine">🔥 <b>3</b></button>
+          <button class="reaction">👀 <b>1</b></button>
+        </div>
+      </div>
+      <div class="msg-tools">
+        <button class="icon-btn" title="Add reaction"><svg><use href="#i-smile"/></svg></button>
+        <button class="icon-btn" title="Reply"><svg><use href="#i-reply"/></svg></button>
+        <button class="icon-btn" title="Edit"><svg><use href="#i-edit"/></svg></button>
+      </div>
+    </div>
+    <div class="msg cont">
+      <time>19:03</time>
+      <p>that's basically the whole realtime layer <span class="edited">(edited)</span></p>
+    </div>
+
+    <div class="divider new">New</div>
+
+    <div class="msg mentioned">
+      <div class="avatar c5">S</div>
+      <div class="body">
+        <div class="head"><span class="author">sasha</span><time>Today at 19:11</time></div>
+        <p><span class="mention">@teacher</span> can we pick the cyan for the accent? it looks great on dark</p>
+      </div>
+    </div>
+
+    <div class="msg">
+      <div class="avatar c4">A</div>
+      <div class="body">
+        <div class="head"><span class="author">ada</span><time>Today at 19:14</time></div>
+        <p>+1 for cyan. one theme, done 🙂</p>
+      </div>
+    </div>
+    <div class="msg cont">
+      <time>19:14</time>
+      <p>also who's writing the docker-compose? I volunteer for the local one</p>
+    </div>
+  </section>
+
+  <div class="composer">
+    <div class="composer-box">
+      <button class="icon-btn" title="Upload"><svg><use href="#i-plus"/></svg></button>
+      <input type="text" placeholder="Message #general" aria-label="Message #general">
+      <button class="icon-btn" title="Emoji"><svg><use href="#i-smile"/></svg></button>
+      <button class="icon-btn" title="Send"><svg><use href="#i-send"/></svg></button>
+    </div>
+    <div class="typing"><span class="dots"><i></i><i></i><i></i></span><span><b>mira</b> is typing…</span></div>
+  </div>
+</main>
+
+<!-- member list -->
+<aside class="members" aria-label="Members">
+  <h3>Online — 5</h3>
+  <div class="member">
+    <div class="avatar sm c4">A<i class="status online"></i></div>
+    <div class="who"><b>ada</b></div>
+  </div>
+  <div class="member">
+    <div class="avatar sm c3">D<i class="status online"></i></div>
+    <div class="who"><b>devon</b><small>Reading Bun docs</small></div>
+  </div>
+  <div class="member">
+    <div class="avatar sm c2">M<i class="status idle"></i></div>
+    <div class="who"><b>mira</b></div>
+  </div>
+
+  <div class="member">
+    <div class="avatar sm c5">S<i class="status online"></i></div>
+    <div class="who"><b>sasha</b></div>
+  </div>
+  <div class="member">
+    <div class="avatar sm c1">T<i class="status online"></i></div>
+    <div class="who"><b>teacher</b><small>Live on stream</small></div>
+  </div>
+
+  <h3>Offline — 1</h3>
+  <div class="member offline">
+    <div class="avatar sm c6">T<i class="status"></i></div>
+    <div class="who"><b>teo</b></div>
+  </div>
+</aside>
+
+</body>
+</html>
