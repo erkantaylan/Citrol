@@ -27,20 +27,13 @@ export function mentionable(channel: Channel | null, meId: string, members: Memb
   return members.filter((m) => m.id !== meId);
 }
 
-// Content as text and pills. `decorate` lets the caller attach menus to a known user's pill.
-export function renderMentions(content: string, lookup: Lookup, decorate?: (pill: HTMLElement, user: Author) => void): Node[] {
-  const nodes: Node[] = [];
-  let last = 0;
-  for (const match of content.matchAll(TOKEN)) {
-    if (match.index > last) nodes.push(document.createTextNode(content.slice(last, match.index)));
-    const user = lookup(match[1]!);
-    const pill = h("span", { class: "mention" }, user ? `@${user.displayName}` : UNKNOWN);
-    if (user) decorate?.(pill, user);
-    nodes.push(pill);
-    last = match.index + match[0].length;
-  }
-  if (last < content.length) nodes.push(document.createTextNode(content.slice(last)));
-  return nodes;
+// The pill for one `<@id>` token (markup.ts finds the tokens). `decorate` lets the caller attach menus to a
+// known user's pill.
+export function mentionPill(id: string, lookup: Lookup, decorate?: (pill: HTMLElement, user: Author) => void): HTMLElement {
+  const user = lookup(id);
+  const pill = h("span", { class: "mention" }, user ? `@${user.displayName}` : UNKNOWN);
+  if (user) decorate?.(pill, user);
+  return pill;
 }
 
 // Content as people read it, for copying and notifications.

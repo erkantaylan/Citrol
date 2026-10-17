@@ -3,7 +3,8 @@ import { attachMenu, openMenu, type MenuItem } from "./context-menu.ts";
 import { autosize, avatar, h, icon } from "./dom.ts";
 import { clock, day, dayKey, full, stamp } from "./format.ts";
 import { attachMentionPicker } from "./mention-picker.ts";
-import { closeTab, hasEveryone, mentionsMe, plainText, renderMentions, type Lookup } from "./mentions.ts";
+import { renderMarkup } from "./markup.ts";
+import { closeTab, hasEveryone, mentionPill, mentionsMe, plainText, type Lookup } from "./mentions.ts";
 import { copyText } from "./toast.ts";
 import type { Author, Channel, Me, Member, Message } from "./types.ts";
 
@@ -40,6 +41,8 @@ export function createMessageList(me: Me, opts: Options) {
   let editing: { id: string; box: HTMLTextAreaElement; picker: ReturnType<typeof attachMentionPicker>; saving: boolean } | null = null;
   let confirmDelete: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
   let rowError: { id: string; text: string } | null = null;
+  // Spoilers someone revealed stay revealed through re-renders, until the message's text changes.
+  const revealed = new Map<string, { content: string; spoilers: Set<number> }>();
 
   const time = (m: Message) => new Date(m.createdAt).getTime();
   const isNearBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM;
@@ -216,14 +219,36 @@ export function createMessageList(me: Me, opts: Options) {
     if (editing?.id === m.id) {
       nodes.push(editing.box, h("div", { class: "edit-hint" }, "Escape to cancel, Enter to save"));
     } else {
-      const p = h("p", {}, ...renderMentions(m.content, opts.people, (pill, user) => mentionMenu(pill, user)));
+      const body = renderMarkup(m.content, {
+        mention: (id) => mentionPill(id, opts.people, (pill, user) => mentionMenu(pill, user)),
+        spoilers: spoilersOf(m),
+      });
       if (m.editedAt) {
-        p.append(" ", h("span", { class: "edited", title: full(new Date(m.editedAt)) }, "(edited)"));
+        const edited = h("span", { class: "edited", title: full(new Date(m.editedAt)) }, "(edited)");
+        // On the last line of text, or on its own line after a code block.
+        const last = body.lastElementChild;
+        if (last instanceof HTMLParagraphElement || last instanceof HTMLQuoteElement) last.append(" ", edited);
+        else body.append(h("p", {}, edited));
       }
-      nodes.push(p);
+      nodes.push(body);
     }
     if (rowError?.id === m.id) nodes.push(h("div", { class: "row-error" }, rowError.text));
     return nodes;
+  }
+
+  function spoilersOf(m: Message) {
+    const seen = () => {
+      const entry = revealed.get(m.id);
+      return entry?.content === m.content ? entry.spoilers : null;
+    };
+    return {
+      isRevealed: (index: number) => seen()?.has(index) ?? false,
+      reveal: (index: number) => {
+        let spoilers = seen();
+        if (!spoilers) revealed.set(m.id, { content: m.content, spoilers: (spoilers = new Set()) });
+        spoilers.add(index);
+      },
+    };
   }
 
   // A mention pill opens the same menu as the person's name: on right click, on click, or with Enter.
@@ -354,6 +379,7 @@ export function createMessageList(me: Me, opts: Options) {
       const gen = ++generation;
       channel = next;
       messages = [];
+      revealed.clear();
       hasMore = false;
       loadError = null;
       loadingOlder = false;

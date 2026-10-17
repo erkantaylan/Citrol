@@ -1,5 +1,6 @@
 import { channelLabel } from "./channels.ts";
 import { autosize, h, icon } from "./dom.ts";
+import { createMarkupHelp } from "./markup-help.ts";
 import { attachMentionPicker } from "./mention-picker.ts";
 import { closeTab, hasEveryone } from "./mentions.ts";
 import type { Channel, Member } from "./types.ts";
@@ -19,8 +20,10 @@ export function createComposer(opts: Options) {
   const sendBtn = h("button", { class: "icon-btn", title: "Send", "aria-label": "Send" }, icon("send"));
   const error = h("div", { class: "composer-error", role: "alert" });
   const typingEl = h("div", { class: "typing", "aria-live": "polite" });
-  const boxRow = h("div", { class: "composer-box" }, box, sendBtn);
-  const el = h("div", { class: "composer" }, boxRow, error, typingEl);
+  const boxRow = h("div", { class: "composer-box" }, box);
+  const help = createMarkupHelp(boxRow);
+  boxRow.append(help.button, sendBtn);
+  const el = h("div", { class: "composer" }, boxRow, error, typingEl, help.panel);
   // Before our own keydown handler, so Enter picks a name instead of sending.
   const picker = attachMentionPicker(box, { candidates: opts.candidates, anchor: boxRow });
 
