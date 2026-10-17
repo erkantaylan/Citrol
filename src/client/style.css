@@ -162,6 +162,36 @@ body.chat-page { overflow: hidden; }
 .icon-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
 .icon-btn.danger:hover:not(:disabled) { color: var(--danger); }
 
+/* ---------- mascot ---------- */
+/* She stands on the user panel and peeks over the bottom of the channel list. Only the image
+   takes clicks; the list keeps room below its last row so nothing ends up hidden behind her. */
+.sidebar { --mascot-h: 190px; }
+.mascot {
+  position: relative; z-index: 1; flex: none; height: 0;
+  pointer-events: none;
+}
+.mascot::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 40px;
+  background: linear-gradient(transparent, var(--bg-sidebar));
+}
+.mascot-img {
+  position: absolute; right: 4px; bottom: 0;
+  height: var(--mascot-h); width: auto; max-width: calc(100% - 8px);
+  object-fit: contain; object-position: right bottom;
+  pointer-events: auto; cursor: pointer; user-select: none;
+  transition: opacity .2s;
+}
+.mascot-img.fading { opacity: 0; }
+.sidebar:has(.mascot) .channels { padding-bottom: calc(var(--mascot-h) + 8px); }
+@media (prefers-reduced-motion: reduce) {
+  .mascot-img { transition: none; }
+}
+/* No room for her on short screens or in the slide-in sidebar on phones. */
+@media (max-height: 639px), (max-width: 720px) {
+  .mascot { display: none; }
+  .sidebar:has(.mascot) .channels { padding-bottom: 16px; }
+}
+
 /* ---------- avatars ---------- */
 .avatar {
   position: relative; flex: none;

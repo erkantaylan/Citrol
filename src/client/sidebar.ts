@@ -1,5 +1,6 @@
 import { attachMenu, type MenuItem } from "./context-menu.ts";
 import { avatar, h, icon } from "./dom.ts";
+import { createMascot } from "./mascot.ts";
 import type { Channel, Me } from "./types.ts";
 
 type Options = {
@@ -110,6 +111,7 @@ export function createSidebar(opts: Options) {
       h("div", { class: "category" }, "Direct messages"),
       dmList,
     ),
+    createMascot(),
     h(
       "div",
       { class: "me" },
