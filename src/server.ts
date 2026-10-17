@@ -2,7 +2,12 @@ import index from "./client/index.html";
 import { config } from "./config.ts";
 import { migrate, sql } from "./db.ts";
 import { avatarUrl, callback, startLogin } from "./auth/discord.ts";
-import { SESSION_COOKIE, deleteSession, getUser } from "./auth/session.ts";
+import { SESSION_COOKIE, deleteSession } from "./auth/session.ts";
+import * as channels from "./chat/channels.ts";
+import * as gateway from "./chat/gateway.ts";
+import { authed } from "./chat/http.ts";
+import * as members from "./chat/members.ts";
+import * as messages from "./chat/messages.ts";
 
 await migrate();
 
@@ -28,22 +33,30 @@ const server = Bun.serve({
     },
 
     "/api/me": {
-      GET: async (req) => {
-        const user = await getUser(req.cookies.get(SESSION_COOKIE));
-        if (!user) return Response.json({ error: "not logged in" }, { status: 401 });
-        return Response.json({
+      GET: authed(async (_req, user) =>
+        Response.json({
           id: user.id,
           username: user.username,
           displayName: user.display_name ?? user.username,
           avatarUrl: avatarUrl(user),
-        });
-      },
+        }),
+      ),
     },
+    "/api/channels": { GET: channels.list, POST: channels.create },
+    "/api/channels/:id/messages": { GET: messages.list, POST: messages.send },
+    "/api/messages/:id": { PATCH: messages.edit, DELETE: messages.remove },
+    "/api/members": { GET: members.list },
+
+    "/ws": gateway.upgrade,
   },
+
+  websocket: gateway.websocket,
 
   fetch() {
     return new Response("Not found", { status: 404 });
   },
 });
+
+gateway.setServer(server);
 
 console.log(`Citrol listening on ${server.url} (public: ${config.publicUrl})`);
