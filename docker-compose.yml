@@ -1,0 +1,42 @@
+# Local development. Values come from .env next to this file, with defaults.
+#   Everything in Docker:   docker compose up --build
+#   Only the database:      docker compose up -d postgres   (then: bun run dev)
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-7421}:7421"
+    environment:
+      PORT: 7421
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:7421}
+      DATABASE_URL: postgres://${POSTGRES_USER:-citrol}:${POSTGRES_PASSWORD:-citrol}@postgres:5432/${POSTGRES_DB:-citrol}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?set DISCORD_CLIENT_ID in .env}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?set DISCORD_CLIENT_SECRET in .env}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:7421/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "7432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-citrol}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-citrol}
+      POSTGRES_DB: ${POSTGRES_DB:-citrol}
+    volumes:
+      - citrol-db-local:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  citrol-db-local:
