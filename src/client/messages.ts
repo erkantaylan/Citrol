@@ -1,7 +1,9 @@
 import { api, PAGE_SIZE } from "./api.ts";
+import { attachMenu, type MenuItem } from "./context-menu.ts";
 import { autosize, avatar, h, icon } from "./dom.ts";
 import { clock, day, dayKey, full, stamp } from "./format.ts";
-import type { Channel, Me, Message } from "./types.ts";
+import { copyText } from "./toast.ts";
+import type { Author, Channel, Me, Message } from "./types.ts";
 
 const GROUP_WINDOW = 5 * 60 * 1000;
 const NEAR_BOTTOM = 80;
@@ -10,7 +12,12 @@ const CONFIRM_TIMEOUT = 4000;
 
 type ScrollMode = "bottom" | "auto" | "keep" | "prepend";
 
-export function createMessageList(me: Me) {
+type Options = {
+  // The menu for an author's avatar or name.
+  authorMenu: (author: Author) => MenuItem[];
+};
+
+export function createMessageList(me: Me, opts: Options) {
   const el = h("section", { class: "messages", "aria-live": "polite" });
 
   let channel: Channel | null = null;
@@ -166,6 +173,8 @@ export function createMessageList(me: Me) {
         }, CONFIRM_TIMEOUT),
       };
       render("keep");
+      // Opened from the context menu: Enter or a click on "Delete?" confirms.
+      el.querySelector<HTMLElement>(".confirm-delete")?.focus({ preventScroll: true });
       return;
     }
     clearConfirm();
@@ -206,6 +215,19 @@ export function createMessageList(me: Me) {
     return nodes;
   }
 
+  function messageMenu(m: Message): MenuItem[] {
+    const items: MenuItem[] = [{ label: "Copy text", action: () => copyText(m.content) }];
+    if (m.author.id === me.id) {
+      // The row may have been re-rendered or removed since the menu opened.
+      const live = () => messages.find((x) => x.id === m.id);
+      items.push(
+        { label: "Edit", action: () => live() && startEdit(live()!) },
+        { label: "Delete", danger: true, action: () => live() && void onDelete(live()!) },
+      );
+    }
+    return items;
+  }
+
   function renderMessage(m: Message, cont: boolean): HTMLElement {
     const date = new Date(m.createdAt);
     const mine = m.author.id === me.id;
@@ -216,15 +238,29 @@ export function createMessageList(me: Me) {
     if (cont) {
       row.append(timeEl, h("div", { class: "body" }, ...renderContent(m)));
     } else {
-      const head = h("div", { class: "head" }, h("span", { class: "author" }, m.author.displayName), timeEl);
-      row.append(avatar(m.author), h("div", { class: "body" }, head, ...renderContent(m)));
+      const name = h("span", { class: "author" }, m.author.displayName);
+      const pic = avatar(m.author);
+      for (const target of [name, pic]) attachMenu(target, () => opts.authorMenu(m.author));
+      const head = h("div", { class: "head" }, name, timeEl);
+      row.append(pic, h("div", { class: "body" }, head, ...renderContent(m)));
     }
     if (mine && editing?.id !== m.id) row.append(renderTools(m));
+    if (editing?.id !== m.id) attachMenu(row, () => messageMenu(m));
     return row;
   }
 
   function renderWelcome(): HTMLElement {
-    const name = channel!.name;
+    const other = channel!.other;
+    if (channel!.kind === "dm" && other) {
+      return h(
+        "div",
+        { class: "welcome" },
+        avatar(other, { size: "lg" }),
+        h("h1", {}, other.displayName),
+        h("p", {}, `This is the beginning of your direct messages with ${other.displayName}.`),
+      );
+    }
+    const name = channel!.name ?? "";
     return h(
       "div",
       { class: "welcome" },

@@ -30,8 +30,8 @@ export function isId(value: unknown): value is string {
   return typeof value === "string" && /^[0-9]{1,18}$/.test(value);
 }
 
-export type Author = { id: string; displayName: string; avatarUrl: string };
+export type Author = { id: string; username: string; displayName: string; avatarUrl: string };
 
 export function toAuthor(user: Pick<User, "id" | "username" | "display_name" | "avatar">): Author {
-  return { id: user.id, displayName: user.display_name ?? user.username, avatarUrl: avatarUrl(user) };
+  return { id: user.id, username: user.username, displayName: user.display_name ?? user.username, avatarUrl: avatarUrl(user) };
 }

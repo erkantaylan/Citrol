@@ -1,6 +1,7 @@
 import type { User } from "../auth/session.ts";
 import { sql } from "../db.ts";
-import { publish } from "./gateway.ts";
+import { type ChannelAccess, findChannel } from "./access.ts";
+import { publishToChannel } from "./gateway.ts";
 import { type Author, authed, fail, isId, readBody, toAuthor } from "./http.ts";
 
 export type Message = {
@@ -40,15 +41,10 @@ async function readContent(req: Request): Promise<string | Response> {
   return content;
 }
 
-async function channelExists(id: string): Promise<boolean> {
-  const [row] = await sql`select 1 from channels where id = ${id}`;
-  return !!row;
-}
-
 // GET /api/channels/:id/messages?before=<messageId>&limit=<n>
-export const list = authed<"/api/channels/:id/messages">(async (req) => {
-  const channelId = req.params.id;
-  if (!isId(channelId) || !(await channelExists(channelId))) return fail(404, "channel not found");
+export const list = authed<"/api/channels/:id/messages">(async (req, user) => {
+  const channel = await findChannel(req.params.id, user.id);
+  if (!channel) return fail(404, "channel not found");
 
   const params = new URL(req.url).searchParams;
   const before = params.get("before");
@@ -61,7 +57,7 @@ export const list = authed<"/api/channels/:id/messages">(async (req) => {
     select m.id, m.channel_id, m.content, m.created_at, m.edited_at,
            u.id as author_id, u.username, u.display_name, u.avatar
     from messages m join users u on u.id = m.author_id
-    where m.channel_id = ${channelId} and (${before}::bigint is null or m.id < ${before}::bigint)
+    where m.channel_id = ${channel.id} and (${before}::bigint is null or m.id < ${before}::bigint)
     order by m.id desc
     limit ${Math.min(limit, MAX_LIMIT)}
   `;
@@ -72,27 +68,29 @@ export const list = authed<"/api/channels/:id/messages">(async (req) => {
 
 // POST /api/channels/:id/messages
 export const send = authed<"/api/channels/:id/messages">(async (req, user) => {
-  const channelId = req.params.id;
-  if (!isId(channelId) || !(await channelExists(channelId))) return fail(404, "channel not found");
+  const channel = await findChannel(req.params.id, user.id);
+  if (!channel) return fail(404, "channel not found");
   const content = await readContent(req);
   if (content instanceof Response) return content;
 
   const [row]: MessageRow[] = await sql`
-    insert into messages (channel_id, author_id, content) values (${channelId}, ${user.id}, ${content})
+    insert into messages (channel_id, author_id, content) values (${channel.id}, ${user.id}, ${content})
     returning id, channel_id, content, created_at, edited_at
   `;
   const message = toMessage(row!, user);
-  publish({ type: "message_created", message });
+  publishToChannel(channel, { type: "message_created", message });
   return Response.json(message, { status: 201 });
 });
 
-// Loads a message and checks the user wrote it; returns its channel id or an error response.
-async function ownMessage(id: string, user: User): Promise<string | Response> {
+// Loads a message and checks the user wrote it; returns its channel or an error response.
+// A message in a DM the user isn't in is "not found", not "forbidden".
+async function ownMessage(id: string, user: User): Promise<ChannelAccess | Response> {
   if (!isId(id)) return fail(404, "message not found");
   const [row] = await sql`select channel_id, author_id from messages where id = ${id}`;
-  if (!row) return fail(404, "message not found");
+  const channel = row && (await findChannel(String(row.channel_id), user.id));
+  if (!channel) return fail(404, "message not found");
   if (row.author_id !== user.id) return fail(403, "only the author can change this message");
-  return String(row.channel_id);
+  return channel;
 }
 
 // PATCH /api/messages/:id
@@ -110,7 +108,7 @@ export const edit = authed<"/api/messages/:id">(async (req, user) => {
   // Deleted between the check and the update.
   if (!row) return fail(404, "message not found");
   const message = toMessage(row, user);
-  publish({ type: "message_updated", message });
+  publishToChannel(owned, { type: "message_updated", message });
   return Response.json(message);
 });
 
@@ -121,6 +119,6 @@ export const remove = authed<"/api/messages/:id">(async (req, user) => {
 
   const [row] = await sql`delete from messages where id = ${req.params.id} and author_id = ${user.id} returning id`;
   if (!row) return fail(404, "message not found");
-  publish({ type: "message_deleted", id: req.params.id, channelId: owned });
+  publishToChannel(owned, { type: "message_deleted", id: req.params.id, channelId: owned.id });
   return new Response(null, { status: 204 });
 });

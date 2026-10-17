@@ -1,17 +1,30 @@
+import { attachMenu, type MenuItem } from "./context-menu.ts";
 import { avatar, h } from "./dom.ts";
-import type { Member } from "./types.ts";
+import type { Me, Member } from "./types.ts";
 
-export function createMemberList() {
+type Options = {
+  me: Me;
+  // Click on someone else: open the DM with them.
+  open: (member: Member) => void;
+  menu: (member: Member) => MenuItem[];
+};
+
+export function createMemberList(opts: Options) {
   const el = h("aside", { class: "members", "aria-label": "Members" });
   const members = new Map<string, Member>();
 
   function row(m: Member): HTMLElement {
-    return h(
-      "div",
-      { class: `member${m.online ? "" : " offline"}` },
-      avatar(m, { small: true, status: m.online ? "online" : "offline" }),
+    const self = m.id === opts.me.id;
+    // You can't message yourself, so your own entry isn't a button.
+    const r = h(
+      self ? "div" : "button",
+      { class: `member${m.online ? "" : " offline"}`, title: self ? undefined : `Message ${m.displayName}` },
+      avatar(m, { size: "sm", status: m.online ? "online" : "offline" }),
       h("div", { class: "who" }, h("b", {}, m.displayName)),
     );
+    if (!self) r.addEventListener("click", () => opts.open(m));
+    attachMenu(r, () => opts.menu(m));
+    return r;
   }
 
   function render() {

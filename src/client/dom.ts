@@ -43,9 +43,9 @@ function colorClass(id: string): string {
 // Avatar image with an initial as fallback if the image fails to load.
 export function avatar(
   user: { id: string; displayName: string; avatarUrl: string },
-  opts: { small?: boolean; status?: "online" | "offline" } = {},
+  opts: { size?: "xs" | "sm" | "lg"; status?: "online" | "offline" } = {},
 ): HTMLDivElement {
-  const el = h("div", { class: `avatar ${colorClass(user.id)}${opts.small ? " sm" : ""}` });
+  const el = h("div", { class: `avatar ${colorClass(user.id)}${opts.size ? ` ${opts.size}` : ""}` });
   const img = h("img", { alt: "" });
   img.src = user.avatarUrl;
   img.addEventListener("error", () => img.replaceWith(user.displayName.slice(0, 1).toUpperCase()), { once: true });

@@ -1,10 +1,20 @@
 // Shapes from docs/api.md.
 
-export type Me = { id: string; username: string; displayName: string; avatarUrl: string };
+export type Author = { id: string; username: string; displayName: string; avatarUrl: string };
 
-export type Channel = { id: string; name: string; topic: string | null; createdAt: string };
+export type Me = Author;
 
-export type Author = { id: string; displayName: string; avatarUrl: string };
+export type Channel = {
+  id: string;
+  kind: "text" | "dm";
+  name: string | null;
+  topic: string | null;
+  // The other person, only for a DM.
+  other: Author | null;
+  createdAt: string;
+  lastMessageId: string | null;
+  unreadCount: number;
+};
 
 export type Message = {
   id: string;
@@ -23,5 +33,6 @@ export type ServerEvent =
   | { type: "message_updated"; message: Message }
   | { type: "message_deleted"; id: string; channelId: string }
   | { type: "channel_created"; channel: Channel }
+  | { type: "read"; channelId: string; messageId: string }
   | { type: "presence"; userId: string; online: boolean; member?: Member }
   | { type: "typing"; channelId: string; userId: string; displayName: string };

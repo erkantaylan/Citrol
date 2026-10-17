@@ -1,5 +1,6 @@
 import type { BunRequest, Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { SESSION_COOKIE, getUser, type User } from "../auth/session.ts";
+import { type ChannelAccess, findChannel } from "./access.ts";
 import { fail, isId, toAuthor } from "./http.ts";
 
 export type SocketData = { user: User; lastTyping: number };
@@ -19,9 +20,24 @@ export function isOnline(userId: string): boolean {
   return connections.has(userId);
 }
 
+type Event = { type: string; [key: string]: unknown };
+
+const userTopic = (userId: string) => `user:${userId}`;
+
 // Sends an event to every connected browser.
-export function publish(event: { type: string; [key: string]: unknown }) {
+export function publish(event: Event) {
   server?.publish(TOPIC, JSON.stringify(event));
+}
+
+// Sends an event to every open tab of one user.
+export function publishToUser(userId: string, event: Event) {
+  server?.publish(userTopic(userId), JSON.stringify(event));
+}
+
+// Sends an event to whoever can see the channel: everyone for a text channel, only the two members for a DM.
+export function publishToChannel(channel: ChannelAccess, event: Event) {
+  if (!channel.members) return publish(event);
+  for (const userId of channel.members) publishToUser(userId, event);
 }
 
 // GET /ws
@@ -38,6 +54,7 @@ export const websocket: WebSocketHandler<SocketData> = {
     const count = (connections.get(user.id) ?? 0) + 1;
     connections.set(user.id, count);
     ws.subscribe(TOPIC);
+    ws.subscribe(userTopic(user.id));
     ws.send(JSON.stringify({ type: "ready", online: [...connections.keys()] }));
     // ws.publish skips this socket: its ready already lists the user as online.
     if (count === 1) {
@@ -45,7 +62,7 @@ export const websocket: WebSocketHandler<SocketData> = {
     }
   },
 
-  message(ws, raw) {
+  async message(ws, raw) {
     let msg: unknown;
     try {
       msg = JSON.parse(String(raw));
@@ -60,8 +77,20 @@ export const websocket: WebSocketHandler<SocketData> = {
     if (now - ws.data.lastTyping < TYPING_INTERVAL_MS) return;
     ws.data.lastTyping = now;
 
+    // Checked after the rate limit, so a socket can't flood the database with lookups.
     const { user } = ws.data;
-    ws.publish(TOPIC, JSON.stringify({ type: "typing", channelId, userId: user.id, displayName: toAuthor(user).displayName }));
+    const channel = await findChannel(channelId, user.id).catch(() => null);
+    if (!channel || ws.readyState !== WebSocket.OPEN) return;
+
+    const event = JSON.stringify({ type: "typing", channelId, userId: user.id, displayName: toAuthor(user).displayName });
+    if (channel.members) {
+      // In a DM only the other member sees it, not the sender's other tabs.
+      const other = channel.members[0] === user.id ? channel.members[1] : channel.members[0];
+      server?.publish(userTopic(other), event);
+    } else {
+      // ws.publish skips this socket, so the sender doesn't see their own typing.
+      ws.publish(TOPIC, event);
+    }
   },
 
   close(ws: ServerWebSocket<SocketData>) {

@@ -4,14 +4,23 @@ The contract between the server (`src/server.ts`, `src/chat/`) and the browser (
 
 Every endpoint below needs the session cookie and answers `401 {"error": "not logged in"}` without it. Errors are always `{"error": "<message>"}` with a 4xx status. All ids are **strings**, timestamps are ISO 8601 strings.
 
-There is one server and no roles: every logged-in user sees every channel, and anyone can create a channel.
+There is one server and no roles: every logged-in user sees every text channel, and anyone can create one. Direct messages (DMs) are one-to-one and visible only to their two members.
 
 ## Shapes
 
 ```ts
-type Channel = { id: string; name: string; topic: string | null; createdAt: string };
+type Author = { id: string; username: string; displayName: string; avatarUrl: string };
 
-type Author = { id: string; displayName: string; avatarUrl: string };
+type Channel = {
+  id: string;
+  kind: "text" | "dm";
+  name: string | null;      // null for a DM
+  topic: string | null;     // null for a DM
+  other: Author | null;     // the other person, only for a DM
+  createdAt: string;
+  lastMessageId: string | null;
+  unreadCount: number;      // messages from others newer than what I've read
+};
 
 type Message = {
   id: string;
@@ -30,19 +39,25 @@ type Member = Author & { online: boolean };
 | Method and path | Body | Answer |
 |---|---|---|
 | `GET /api/me` | | `{ id, username, displayName, avatarUrl }` |
-| `GET /api/channels` | | `Channel[]`, by name |
-| `POST /api/channels` | `{ name, topic? }` | `201 Channel`. `name`: 1–32 chars of `a-z 0-9 -`, unique (`409` if taken). `topic`: up to 200 chars. |
+| `GET /api/channels` | | `Channel[]`: all text channels by name, then my DMs, latest activity first. |
+| `POST /api/channels` | `{ name, topic? }` | `201 Channel` (a text channel). `name`: 1–32 chars of `a-z 0-9 -`, unique (`409` if taken). `topic`: up to 200 chars. |
+| `POST /api/dms` | `{ userId }` | The DM with that user: `200 Channel` if it exists, `201 Channel` if new. `400` for yourself, `404` for an unknown user. There is exactly one DM per pair of users. |
+| `POST /api/channels/:id/read` | `{ messageId }` | `204`. Marks the channel read up to that message. Never moves backwards. |
 | `GET /api/channels/:id/messages?before=<messageId>&limit=<n>` | | `Message[]`, oldest first. The newest `limit` (default 50, max 100) messages older than `before`, or the newest overall without `before`. Fewer than `limit` means there is nothing older. |
 | `POST /api/channels/:id/messages` | `{ content }` | `201 Message`. `content` is trimmed, 1–2000 chars. |
 | `PATCH /api/messages/:id` | `{ content }` | `Message`. Only the author (`403` otherwise). Sets `editedAt`. |
 | `DELETE /api/messages/:id` | | `204`. Only the author (`403` otherwise). |
 | `GET /api/members` | | `Member[]`: everyone who has ever logged in, online first, then by name. |
 
+A DM that I'm not a member of behaves as if it didn't exist: every route answers `404`.
+
 Sending, editing and deleting go through REST, so validation and errors stay in one place. The WebSocket only carries what happened.
 
 ## WebSocket: `GET /ws`
 
 The browser opens `ws(s)://<host>/ws`. The session cookie is checked on the upgrade (`401` without it). Every message is one JSON object with a `type`.
+
+Each socket subscribes to two topics: one shared by everyone, and one for its own user (`user:<id>`). Events about text channels go to everyone. Events about a DM go only to the two members' topics, never to the shared one.
 
 Server to browser:
 
@@ -52,14 +67,15 @@ Server to browser:
 | `message_created` | `message: Message` | Someone sent a message (the sender gets it too). |
 | `message_updated` | `message: Message` | A message was edited. |
 | `message_deleted` | `id, channelId` | A message was deleted. |
-| `channel_created` | `channel: Channel` | Someone created a channel. |
+| `channel_created` | `channel: Channel` | A text channel was created (to everyone), or a DM was created (to its two members; each gets the `Channel` from their own side, with `other` set to the other person). |
+| `read` | `channelId, messageId` | I marked a channel read, sent to my own topic so my other tabs clear it too. |
 | `presence` | `userId, online: boolean, member?: Member` | A user's first tab connected or last tab closed. `member` is included when they come online, so a user who logged in for the first time can be added to the list. |
-| `typing` | `channelId, userId, displayName` | Someone is typing. Show it for 5 seconds unless it repeats. |
+| `typing` | `channelId, userId, displayName` | Someone is typing. Show it for 5 seconds unless it repeats. In a DM it goes only to the other member. |
 
 Browser to server:
 
 | `type` | Fields | Rule |
 |---|---|---|
-| `typing` | `channelId` | Sent at most every 3 seconds while the user types. The server passes it on to everyone else. |
+| `typing` | `channelId` | Sent at most every 3 seconds while the user types. The server passes it on, and ignores it for a DM the sender isn't in. |
 
-Every socket subscribes to one topic, so every event goes to every logged-in browser. When the socket drops (for example during a deploy), the browser reconnects with backoff and reloads the open channel's latest messages.
+When the socket drops (for example during a deploy), the browser reconnects with backoff and reloads the channel list, the open channel's latest messages and the member list.

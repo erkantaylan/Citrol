@@ -127,6 +127,13 @@ body.chat-page { overflow: hidden; }
 .channel:hover { background: var(--bg-hover); color: var(--text-muted); }
 .channel.unread { color: var(--text); font-weight: 600; }
 .channel.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.channel.dm { gap: 8px; padding: 4px 8px; }
+.badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; flex: none;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 11px; font-style: normal; font-weight: 800; display: grid; place-items: center;
+}
+.channel-list .hint { padding: 4px 8px; font-size: 13px; color: var(--text-faint); }
 
 .new-channel { margin: 2px 0 6px; }
 .new-channel-box {
@@ -164,6 +171,8 @@ body.chat-page { overflow: hidden; }
 }
 .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
 .avatar.sm { width: 32px; height: 32px; font-size: 13px; }
+.avatar.xs { width: 24px; height: 24px; font-size: 11px; }
+.avatar.lg { width: 64px; height: 64px; font-size: 26px; }
 .avatar .status {
   position: absolute; right: -2px; bottom: -2px;
   width: 14px; height: 14px; border-radius: 50%;
@@ -188,6 +197,7 @@ body.chat-page { overflow: hidden; }
 }
 .chat-header .name { font-weight: 700; white-space: nowrap; }
 .chat-header .hash { color: var(--text-faint); }
+.chat-header .header-avatar { display: flex; }
 .chat-header .topic {
   flex: 1; min-width: 0; color: var(--text-muted); font-size: 14px;
   padding-left: 12px; margin-left: 4px; border-left: 1px solid var(--border);
@@ -206,6 +216,7 @@ body.chat-page { overflow: hidden; }
   display: grid; place-items: center; margin-bottom: 8px;
 }
 .welcome .big-hash svg { width: 36px; height: 36px; }
+.welcome .avatar { margin-bottom: 8px; }
 .welcome h1 { margin: 0 0 4px; font-size: 28px; overflow-wrap: anywhere; }
 .welcome p { margin: 0; color: var(--text-muted); overflow-wrap: anywhere; }
 
@@ -295,12 +306,43 @@ body.chat-page { overflow: hidden; }
 .members h3:first-child { margin-top: 0; }
 .member {
   display: flex; align-items: center; gap: 10px;
-  padding: 5px 8px; border-radius: 6px;
+  width: 100%; padding: 5px 8px; border-radius: 6px; text-align: left;
 }
 .member:hover { background: var(--bg-hover); }
 .member .who { line-height: 1.2; min-width: 0; }
 .member .who b { display: block; font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .member.offline { opacity: .4; }
+
+/* Long press opens our menu; keep the browser's own callout out of the way. */
+.msg, .channel, .member { -webkit-touch-callout: none; }
+
+/* ---------- context menu and toast ---------- */
+.context-menu {
+  position: fixed; z-index: 50; min-width: 180px; max-width: 280px;
+  padding: 6px; border-radius: var(--radius);
+  background: var(--bg-raised); border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+  outline: 0;
+}
+.context-menu button {
+  display: block; width: 100%; padding: 6px 8px; border-radius: 4px;
+  text-align: left; font-size: 14px; font-weight: 500; color: var(--text-muted);
+  outline: 0;
+}
+.context-menu button:not(:disabled):is(:hover, :focus) { background: var(--accent); color: var(--accent-ink); }
+.context-menu button.danger { color: var(--danger); }
+.context-menu button.danger:not(:disabled):is(:hover, :focus) { background: var(--danger); color: #2a0610; }
+
+.toast {
+  position: fixed; z-index: 60; left: 50%; bottom: 88px;
+  transform: translate(-50%, 8px);
+  padding: 6px 12px; border-radius: 6px;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 13px; font-weight: 700;
+  opacity: 0; pointer-events: none;
+  transition: opacity .25s, transform .25s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 .scrim { display: none; }
 

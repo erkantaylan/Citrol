@@ -1,49 +1,68 @@
 import { api } from "./api.ts";
+import { channelLabel, channelLink, createChannelStore } from "./channels.ts";
 import { createComposer } from "./composer.ts";
-import { h, icon } from "./dom.ts";
+import type { MenuItem } from "./context-menu.ts";
+import { avatar, h, icon } from "./dom.ts";
 import { createMemberList } from "./members.ts";
 import { createMessageList } from "./messages.ts";
+import { createNotifyButton, dismiss, notify } from "./notify.ts";
 import { createSidebar } from "./sidebar.ts";
 import { connect } from "./socket.ts";
-import type { Channel, Me, ServerEvent } from "./types.ts";
+import { copyText, toast } from "./toast.ts";
+import type { Author, Channel, Me, Message, ServerEvent } from "./types.ts";
 
-const byName = (a: Channel, b: Channel) => a.name.localeCompare(b.name);
+const READ_DEBOUNCE = 500;
 
 export async function startApp(root: HTMLElement, me: Me) {
-  let channels: Channel[] = [];
+  const store = createChannelStore();
   let current: Channel | null = null;
-  const unread = new Set<string>();
+
+  // ---------- menus shared by several parts ----------
+  function memberMenu(user: Author): MenuItem[] {
+    const items: MenuItem[] = [];
+    if (user.id !== me.id) items.push({ label: "Message", action: () => void openDm(user) });
+    items.push({ label: "Copy username", action: () => copyText(user.username) });
+    return items;
+  }
+
+  function channelMenu(c: Channel): MenuItem[] {
+    return [
+      { label: "Mark as read", disabled: c.unreadCount === 0, action: () => markRead(c) },
+      { label: "Copy link", action: () => copyText(channelLink(c)) },
+    ];
+  }
 
   // ---------- layout ----------
   const sidebar = createSidebar({
     me,
-    select: (c) => {
-      root.classList.remove("show-sidebar");
-      location.hash = `#/channels/${encodeURIComponent(c.id)}`;
-    },
+    select,
     create: async (name) => {
       const channel = await api.createChannel(name);
       addChannel(channel);
       return channel;
     },
+    menu: channelMenu,
     logout: async () => {
       socket.close();
       await api.logout();
       location.replace("/");
     },
+    tools: [createNotifyButton()],
   });
-  const messages = createMessageList(me);
+  const messages = createMessageList(me, { authorMenu: memberMenu });
   const composer = createComposer({
     send: async (channelId, content) => messages.add(await api.send(channelId, content)),
     typing: (channelId) => socket.send({ type: "typing", channelId }),
   });
-  const members = createMemberList();
+  const members = createMemberList({ me, open: (m) => void openDm(m), menu: memberMenu });
 
   const menuBtn = h("button", { class: "icon-btn menu", title: "Channels", "aria-label": "Show channels" }, icon("menu"));
   menuBtn.addEventListener("click", () => root.classList.toggle("show-sidebar"));
+  const hash = icon("hash", "hash");
+  const headerAvatar = h("span", { class: "header-avatar", hidden: true });
   const headerName = h("span", { class: "name" });
   const headerTopic = h("span", { class: "topic" });
-  const header = h("header", { class: "chat-header" }, menuBtn, icon("hash", "hash"), headerName, headerTopic);
+  const header = h("header", { class: "chat-header" }, menuBtn, hash, headerAvatar, headerName, headerTopic);
   const reconnecting = h("div", { class: "reconnecting", role: "status", hidden: true }, "Reconnecting…");
   const scrim = h("div", { class: "scrim" });
   scrim.addEventListener("click", () => root.classList.remove("show-sidebar"));
@@ -57,51 +76,111 @@ export async function startApp(root: HTMLElement, me: Me) {
     scrim,
   );
 
+  function renderTitle() {
+    const unread = store.dmUnread();
+    const where = current ? `${channelLabel(current)} · ` : "";
+    document.title = `${unread ? `(${unread}) ` : ""}${where}Citrol`;
+  }
+
   function renderSidebar() {
-    sidebar.render(channels, current?.id ?? null, unread);
+    sidebar.render(store.text, store.dms, current?.id ?? null);
+    renderTitle();
   }
 
   function renderHeader() {
-    headerName.textContent = current?.name ?? "";
-    headerTopic.textContent = current?.topic ?? "";
-    headerTopic.title = current?.topic ?? "";
-    headerTopic.hidden = !current?.topic;
-    document.title = current ? `#${current.name} · Citrol` : "Citrol";
+    const dm = current?.kind === "dm" ? current.other : null;
+    hash.style.display = dm ? "none" : "";
+    headerAvatar.hidden = !dm;
+    headerAvatar.replaceChildren(...(dm ? [avatar(dm, { size: "xs" })] : []));
+    headerName.textContent = dm ? dm.displayName : (current?.name ?? "");
+    const topic = dm ? null : (current?.topic ?? null);
+    headerTopic.textContent = topic ?? "";
+    headerTopic.title = topic ?? "";
+    headerTopic.hidden = !topic;
+    renderTitle();
+  }
+
+  function select(c: Channel) {
+    root.classList.remove("show-sidebar");
+    location.hash = `#/channels/${encodeURIComponent(c.id)}`;
   }
 
   function addChannel(channel: Channel) {
-    if (channels.some((c) => c.id === channel.id)) return;
-    channels = [...channels, channel].sort(byName);
+    if (!store.add(channel)) return;
     renderSidebar();
     if (!current) route();
   }
+
+  async function openDm(user: Author) {
+    const known = store.dms.find((c) => c.other?.id === user.id);
+    if (known) return select(known);
+    try {
+      const dm = await api.openDm(user.id);
+      addChannel(dm);
+      select(store.find(dm.id) ?? dm);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not open the conversation.");
+    }
+  }
+
+  // ---------- read state ----------
+  // channelId -> newest message id to report, sent together after a short pause.
+  const pendingReads = new Map<string, string>();
+  let readTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function markRead(c: Channel) {
+    dismiss(c.id);
+    if (c.unreadCount !== 0) {
+      c.unreadCount = 0;
+      renderSidebar();
+    }
+    if (!c.lastMessageId) return;
+    pendingReads.set(c.id, c.lastMessageId);
+    clearTimeout(readTimer);
+    readTimer = setTimeout(() => {
+      for (const [channelId, messageId] of pendingReads) void api.markRead(channelId, messageId).catch(() => {});
+      pendingReads.clear();
+    }, READ_DEBOUNCE);
+  }
+
+  // The open channel counts as read only while someone can see it.
+  function readIfLooking() {
+    if (current && current.unreadCount > 0 && !document.hidden) markRead(current);
+  }
+
+  document.addEventListener("visibilitychange", readIfLooking);
 
   // ---------- routing: #/channels/<id> ----------
   function route() {
     const match = location.hash.match(/^#\/channels\/(.+)$/);
     const wanted = match ? decodeURIComponent(match[1]!) : null;
     const channel =
-      channels.find((c) => c.id === wanted) ?? channels.find((c) => c.name === "general") ?? channels[0] ?? null;
+      store.find(wanted ?? "") ?? store.text.find((c) => c.name === "general") ?? store.all()[0] ?? null;
     if (channel && channel.id !== wanted) {
       history.replaceState(null, "", `#/channels/${encodeURIComponent(channel.id)}`);
     }
     if (channel?.id === current?.id && channel !== null) return;
     current = channel;
-    if (channel) unread.delete(channel.id);
     renderSidebar();
     renderHeader();
     composer.setChannel(channel);
     void messages.open(channel);
     composer.focus();
+    readIfLooking();
   }
 
   window.addEventListener("hashchange", route);
 
+  // Several reloads can overlap (reconnect, unknown channel); only the newest answer counts.
+  let channelsRequest = 0;
   async function loadChannels() {
-    channels = (await api.channels()).sort(byName);
+    const request = ++channelsRequest;
+    const list = await api.channels();
+    if (request !== channelsRequest) return;
+    store.set(list);
     // The open channel may have been renamed; keep our object in step.
     if (current) {
-      const fresh = channels.find((c) => c.id === current!.id);
+      const fresh = store.find(current.id);
       if (fresh) {
         current = fresh;
         messages.setChannel(fresh);
@@ -110,6 +189,7 @@ export async function startApp(root: HTMLElement, me: Me) {
     }
     renderSidebar();
     route();
+    readIfLooking();
   }
 
   async function loadMembers() {
@@ -117,30 +197,73 @@ export async function startApp(root: HTMLElement, me: Me) {
   }
 
   // ---------- live events ----------
+  function maybeNotify(c: Channel, m: Message) {
+    if (c.kind !== "dm" || m.author.id === me.id) return;
+    if (!document.hidden && current?.id === c.id) return;
+    notify({
+      title: m.author.displayName,
+      body: m.content,
+      icon: m.author.avatarUrl,
+      tag: c.id,
+      onClick: () => select(store.find(c.id) ?? c),
+    });
+  }
+
+  function onMessage(m: Message) {
+    composer.stopTyping(m.channelId, m.author.id);
+    const c = store.find(m.channelId);
+    if (!c) {
+      // Most likely the first message of a new DM; the reloaded list already counts it as unread.
+      void loadChannels().then(() => {
+        const fresh = store.find(m.channelId);
+        if (fresh) maybeNotify(fresh, m);
+      }, () => {});
+      return;
+    }
+    store.touch(c, m.id);
+    if (c.id === current?.id) messages.add(m);
+    if (m.author.id !== me.id) c.unreadCount++;
+    renderSidebar();
+    readIfLooking();
+    maybeNotify(c, m);
+  }
+
   function onEvent(e: ServerEvent) {
     switch (e.type) {
       case "ready":
         members.setOnline(e.online);
         break;
-      case "message_created": {
-        const m = e.message;
-        composer.stopTyping(m.channelId, m.author.id);
-        if (m.channelId === current?.id) messages.add(m);
-        else if (m.author.id !== me.id && !unread.has(m.channelId)) {
-          unread.add(m.channelId);
-          renderSidebar();
-        }
+      case "message_created":
+        onMessage(e.message);
         break;
-      }
       case "message_updated":
         messages.update(e.message);
         break;
-      case "message_deleted":
+      case "message_deleted": {
         messages.remove(e.id, e.channelId);
+        // An unread or the newest message went away; the server has the right count and newest id.
+        const c = store.find(e.channelId);
+        if (c && (c.unreadCount > 0 || c.lastMessageId === e.id)) void loadChannels().catch(() => {});
         break;
+      }
       case "channel_created":
         addChannel(e.channel);
         break;
+      case "read": {
+        // Read in another tab (or this one).
+        const c = store.find(e.channelId);
+        if (!c) break;
+        dismiss(c.id);
+        if (c.unreadCount === 0) break;
+        // Newer messages may have come in since; then only the server knows how many.
+        if (e.messageId === c.lastMessageId) {
+          c.unreadCount = 0;
+          renderSidebar();
+        } else {
+          void loadChannels().catch(() => {});
+        }
+        break;
+      }
       case "presence":
         if (!members.presence(e.userId, e.online, e.member)) void loadMembers().catch(() => {});
         break;

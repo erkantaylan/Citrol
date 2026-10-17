@@ -4,6 +4,7 @@ import { migrate, sql } from "./db.ts";
 import { avatarUrl, callback, startLogin } from "./auth/discord.ts";
 import { SESSION_COOKIE, deleteSession } from "./auth/session.ts";
 import * as channels from "./chat/channels.ts";
+import * as dms from "./chat/dms.ts";
 import * as gateway from "./chat/gateway.ts";
 import { authed } from "./chat/http.ts";
 import * as members from "./chat/members.ts";
@@ -43,6 +44,8 @@ const server = Bun.serve({
       ),
     },
     "/api/channels": { GET: channels.list, POST: channels.create },
+    "/api/channels/:id/read": { POST: channels.markRead },
+    "/api/dms": { POST: dms.open },
     "/api/channels/:id/messages": { GET: messages.list, POST: messages.send },
     "/api/messages/:id": { PATCH: messages.edit, DELETE: messages.remove },
     "/api/members": { GET: members.list },

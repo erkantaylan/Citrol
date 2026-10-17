@@ -1,3 +1,4 @@
+import { attachMenu, type MenuItem } from "./context-menu.ts";
 import { avatar, h, icon } from "./dom.ts";
 import type { Channel, Me } from "./types.ts";
 
@@ -5,8 +6,13 @@ type Options = {
   me: Me;
   select: (channel: Channel) => void;
   create: (name: string) => Promise<Channel>;
+  menu: (channel: Channel) => MenuItem[];
   logout: () => void;
+  // Extra buttons in the user panel, left of "Log out".
+  tools?: Node[];
 };
+
+const BADGE_MAX = 99;
 
 // Turn what people naturally type ("Bun Questions") into a valid name ("bun-questions").
 function toChannelName(text: string): string {
@@ -15,6 +21,7 @@ function toChannelName(text: string): string {
 
 export function createSidebar(opts: Options) {
   const list = h("div", { class: "channel-list" });
+  const dmList = h("div", { class: "channel-list" });
 
   // ---------- create channel (inline) ----------
   const input = h("input", {
@@ -83,7 +90,7 @@ export function createSidebar(opts: Options) {
 
   // ---------- current user ----------
   const status = h("small", {}, "Online");
-  const meAvatar = avatar(opts.me, { small: true, status: "online" });
+  const meAvatar = avatar(opts.me, { size: "sm", status: "online" });
   const logoutBtn = h("button", { class: "icon-btn", title: "Log out", "aria-label": "Log out" }, icon("logout"));
   logoutBtn.addEventListener("click", () => {
     logoutBtn.disabled = true;
@@ -94,36 +101,51 @@ export function createSidebar(opts: Options) {
     "aside",
     { class: "sidebar" },
     h("header", { class: "server-header" }, "Citrol"),
-    h("nav", { class: "channels", "aria-label": "Channels" }, h("div", { class: "category" }, "Text channels", addBtn), form, list),
+    h(
+      "nav",
+      { class: "channels", "aria-label": "Channels" },
+      h("div", { class: "category" }, "Text channels", addBtn),
+      form,
+      list,
+      h("div", { class: "category" }, "Direct messages"),
+      dmList,
+    ),
     h(
       "div",
       { class: "me" },
       meAvatar,
       h("div", { class: "who" }, h("b", {}, opts.me.displayName), status),
+      ...(opts.tools ?? []),
       logoutBtn,
     ),
   );
 
+  function row(c: Channel, active: boolean): HTMLButtonElement {
+    const unread = c.unreadCount > 0;
+    const dm = c.kind === "dm";
+    const btn = h("button", {
+      class: `channel${dm ? " dm" : ""}${active ? " active" : unread ? " unread" : ""}`,
+      "aria-current": active ? "page" : undefined,
+    });
+    if (dm && c.other) btn.append(avatar(c.other, { size: "xs" }), h("span", {}, c.other.displayName));
+    else btn.append(icon("hash"), h("span", {}, c.name ?? ""));
+    if (dm && unread) {
+      const count = c.unreadCount > BADGE_MAX ? `${BADGE_MAX}+` : String(c.unreadCount);
+      btn.append(h("i", { class: "badge", "aria-label": `${c.unreadCount} unread` }, count));
+    }
+    if (c.topic) btn.title = c.topic;
+    btn.addEventListener("click", () => opts.select(c));
+    attachMenu(btn, () => opts.menu(c));
+    return btn;
+  }
+
   return {
     el,
 
-    render(channels: Channel[], currentId: string | null, unread: Set<string>) {
-      list.replaceChildren(
-        ...channels.map((c) => {
-          const active = c.id === currentId;
-          const btn = h(
-            "button",
-            {
-              class: `channel${active ? " active" : unread.has(c.id) ? " unread" : ""}`,
-              "aria-current": active ? "page" : undefined,
-            },
-            icon("hash"),
-            h("span", {}, c.name),
-          );
-          if (c.topic) btn.title = c.topic;
-          btn.addEventListener("click", () => opts.select(c));
-          return btn;
-        }),
+    render(text: Channel[], dms: Channel[], currentId: string | null) {
+      list.replaceChildren(...text.map((c) => row(c, c.id === currentId)));
+      dmList.replaceChildren(
+        ...(dms.length ? dms.map((c) => row(c, c.id === currentId)) : [h("div", { class: "hint" }, "No direct messages yet.")]),
       );
     },
 

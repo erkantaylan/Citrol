@@ -1,3 +1,4 @@
+import { channelLabel } from "./channels.ts";
 import { autosize, h, icon } from "./dom.ts";
 import type { Channel } from "./types.ts";
 
@@ -99,7 +100,7 @@ export function createComposer(opts: Options) {
       if (channel) drafts.set(channel.id, box.value);
       channel = next;
       box.value = next ? (drafts.get(next.id) ?? "") : "";
-      box.placeholder = next ? `Message #${next.name}` : "No channel";
+      box.placeholder = next ? `Message ${channelLabel(next)}` : "No channel";
       box.setAttribute("aria-label", box.placeholder);
       box.disabled = next === null || sending;
       sendBtn.disabled = box.disabled;

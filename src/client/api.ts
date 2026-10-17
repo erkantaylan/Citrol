@@ -36,6 +36,9 @@ export const api = {
   channels: () => request<Channel[]>("GET", "/api/channels"),
   createChannel: (name: string, topic?: string) =>
     request<Channel>("POST", "/api/channels", topic ? { name, topic } : { name }),
+  openDm: (userId: string) => request<Channel>("POST", "/api/dms", { userId }),
+  markRead: (channelId: string, messageId: string) =>
+    request<void>("POST", `/api/channels/${encodeURIComponent(channelId)}/read`, { messageId }),
   messages: (channelId: string, before?: string) => {
     const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
     if (before) params.set("before", before);
