@@ -165,7 +165,8 @@ body.chat-page { overflow: hidden; }
 /* ---------- mascot ---------- */
 /* She stands on the user panel and peeks over the bottom of the channel list. Only the image
    takes clicks; the list keeps room below its last row so nothing ends up hidden behind her. */
-.sidebar { --mascot-h: 190px; }
+/* Up to 380px, but never more than 45% of the screen height so the channel list keeps room. */
+.sidebar { --mascot-h: min(380px, 45vh); }
 .mascot {
   position: relative; z-index: 1; flex: none; height: 0;
   pointer-events: none;
