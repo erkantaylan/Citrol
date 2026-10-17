@@ -14,13 +14,18 @@ export type Channel = {
   createdAt: string;
   lastMessageId: string | null;
   unreadCount: number;
+  // Of the unread ones, those that mention me.
+  mentionCount: number;
 };
 
 export type Message = {
   id: string;
   channelId: string;
   author: Author;
+  // May contain mention tokens `<@id>`.
   content: string;
+  // Ids of the users mentioned.
+  mentions: string[];
   createdAt: string;
   editedAt: string | null;
 };

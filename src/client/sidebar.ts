@@ -133,6 +133,10 @@ export function createSidebar(opts: Options) {
       const count = c.unreadCount > BADGE_MAX ? `${BADGE_MAX}+` : String(c.unreadCount);
       btn.append(h("i", { class: "badge", "aria-label": `${c.unreadCount} unread` }, count));
     }
+    if (!dm && c.mentionCount > 0) {
+      const count = c.mentionCount > BADGE_MAX ? `${BADGE_MAX}+` : String(c.mentionCount);
+      btn.append(h("i", { class: "badge", "aria-label": `${c.mentionCount} mentions` }, `@${count}`));
+    }
     if (c.topic) btn.title = c.topic;
     btn.addEventListener("click", () => opts.select(c));
     attachMenu(btn, () => opts.menu(c));

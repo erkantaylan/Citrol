@@ -48,6 +48,7 @@ export function createChannelStore() {
     },
 
     dmUnread: () => dms.reduce((n, c) => n + c.unreadCount, 0),
+    textMentions: () => text.reduce((n, c) => n + c.mentionCount, 0),
   };
 }
 

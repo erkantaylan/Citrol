@@ -12,6 +12,7 @@ export type Channel = {
   createdAt: string;
   lastMessageId: string | null;
   unreadCount: number;
+  mentionCount: number;
 };
 
 type ChannelRow = {
@@ -26,6 +27,7 @@ type ChannelRow = {
   other_avatar: string | null;
   last_message_id: string | null;
   unread_count: number;
+  mention_count: number;
 };
 
 function toChannel(row: ChannelRow): Channel {
@@ -40,6 +42,7 @@ function toChannel(row: ChannelRow): Channel {
     createdAt: row.created_at.toISOString(),
     lastMessageId: row.last_message_id === null ? null : String(row.last_message_id),
     unreadCount: row.unread_count,
+    mentionCount: row.mention_count,
   };
 }
 
@@ -48,6 +51,7 @@ function toChannel(row: ChannelRow): Channel {
 export async function channelsFor(userId: string, onlyId?: string): Promise<Channel[]> {
   // Unread: messages by others past the read marker. A text channel also ignores everything from
   // before the user's first login, so a new user doesn't start with the whole history unread.
+  // Mentions: the unread messages, by the same rules, that mention the user.
   const rows: ChannelRow[] = await sql`
     select c.id, c.kind, c.name, c.topic, c.created_at,
            o.id as other_id, o.username as other_username, o.display_name as other_display_name, o.avatar as other_avatar,
@@ -55,7 +59,11 @@ export async function channelsFor(userId: string, onlyId?: string): Promise<Chan
            (select count(*)::int from messages m
             where m.channel_id = c.id and m.author_id <> ${userId}
               and m.id > coalesce(r.last_read_message_id, 0)
-              and (c.kind = 'dm' or m.created_at > me.created_at)) as unread_count
+              and (c.kind = 'dm' or m.created_at > me.created_at)) as unread_count,
+           (select count(*)::int from message_mentions mm join messages m on m.id = mm.message_id
+            where mm.user_id = ${userId} and mm.channel_id = c.id and m.author_id <> ${userId}
+              and mm.message_id > coalesce(r.last_read_message_id, 0)
+              and (c.kind = 'dm' or m.created_at > me.created_at)) as mention_count
     from channels c
     join users me on me.id = ${userId}
     left join users o on o.id = case when c.dm_user_a = ${userId} then c.dm_user_b else c.dm_user_a end
@@ -99,6 +107,7 @@ export const create = authed(async (req, user) => {
     createdAt: row.created_at.toISOString(),
     lastMessageId: null,
     unreadCount: 0,
+    mentionCount: 0,
   };
   publish({ type: "channel_created", channel });
   return Response.json(channel, { status: 201 });

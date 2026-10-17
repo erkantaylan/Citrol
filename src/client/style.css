@@ -246,6 +246,29 @@ body.chat-page { overflow: hidden; }
 .msg p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg .edited { font-size: 11px; color: var(--text-faint); }
 
+/* ---------- mentions ---------- */
+.msg.mentioned { background: var(--accent-soft); box-shadow: inset 2px 0 var(--accent); }
+.mention {
+  padding: 0 3px; border-radius: 4px; cursor: pointer;
+  background: var(--accent-soft); color: var(--accent); font-weight: 500;
+}
+.mention:hover, .mention:focus-visible { background: var(--accent); color: var(--accent-ink); outline: 0; }
+.mention-picker {
+  position: fixed; z-index: 40; max-width: calc(100vw - 8px);
+  padding: 6px; border-radius: var(--radius);
+  background: var(--bg-raised); border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+.mention-option {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 14px;
+}
+.mention-option b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-option small { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-option.offline .avatar { opacity: .5; }
+.mention-option:hover { background: var(--bg-hover); }
+.mention-option.active { background: var(--accent-soft); color: var(--accent); }
+
 .msg-tools {
   position: absolute; right: 16px; top: -14px;
   display: none; align-items: center; gap: 2px; padding: 2px;

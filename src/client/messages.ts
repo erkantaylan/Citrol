@@ -1,9 +1,11 @@
 import { api, PAGE_SIZE } from "./api.ts";
-import { attachMenu, type MenuItem } from "./context-menu.ts";
+import { attachMenu, openMenu, type MenuItem } from "./context-menu.ts";
 import { autosize, avatar, h, icon } from "./dom.ts";
 import { clock, day, dayKey, full, stamp } from "./format.ts";
+import { attachMentionPicker } from "./mention-picker.ts";
+import { closeTab, hasEveryone, mentionsMe, plainText, renderMentions, type Lookup } from "./mentions.ts";
 import { copyText } from "./toast.ts";
-import type { Author, Channel, Me, Message } from "./types.ts";
+import type { Author, Channel, Me, Member, Message } from "./types.ts";
 
 const GROUP_WINDOW = 5 * 60 * 1000;
 const NEAR_BOTTOM = 80;
@@ -15,6 +17,10 @@ type ScrollMode = "bottom" | "auto" | "keep" | "prepend";
 type Options = {
   // The menu for an author's avatar or name.
   authorMenu: (author: Author) => MenuItem[];
+  // Finds the user behind a mention token.
+  people: Lookup;
+  // Who can be @mentioned while editing.
+  candidates: () => Member[];
 };
 
 export function createMessageList(me: Me, opts: Options) {
@@ -31,7 +37,7 @@ export function createMessageList(me: Me, opts: Options) {
   // Messages that arrived over the socket while a page was being fetched.
   let arrivedDuringLoad: Message[] | null = null;
 
-  let editing: { id: string; box: HTMLTextAreaElement; saving: boolean } | null = null;
+  let editing: { id: string; box: HTMLTextAreaElement; picker: ReturnType<typeof attachMentionPicker>; saving: boolean } | null = null;
   let confirmDelete: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
   let rowError: { id: string; text: string } | null = null;
 
@@ -107,8 +113,11 @@ export function createMessageList(me: Me, opts: Options) {
 
   function startEdit(m: Message) {
     const box = h("textarea", { class: "edit-box", rows: "1", "aria-label": "Edit message" });
-    box.value = m.content;
-    editing = { id: m.id, box, saving: false };
+    // Before our own keydown handler, so Enter and Escape go to the picker while it's open.
+    const picker = attachMentionPicker(box, { candidates: opts.candidates });
+    box.value = picker.fromContent(m.content, opts.people);
+    editing?.picker.close();
+    editing = { id: m.id, box, picker, saving: false };
     rowError = null;
     box.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
@@ -128,6 +137,7 @@ export function createMessageList(me: Me, opts: Options) {
 
   function stopEdit() {
     if (!editing) return;
+    editing.picker.close();
     editing = null;
     rowError = null;
     render("keep");
@@ -137,8 +147,9 @@ export function createMessageList(me: Me, opts: Options) {
     if (!editing || editing.saving) return;
     const current = editing;
     const original = messages.find((m) => m.id === current.id);
-    const content = current.box.value.trim();
+    const content = current.picker.toContent(current.box.value.trim());
     if (original && content === original.content) return stopEdit();
+    if (hasEveryone(content)) return closeTab();
     current.saving = true;
     current.box.disabled = true;
     try {
@@ -205,7 +216,7 @@ export function createMessageList(me: Me, opts: Options) {
     if (editing?.id === m.id) {
       nodes.push(editing.box, h("div", { class: "edit-hint" }, "Escape to cancel, Enter to save"));
     } else {
-      const p = h("p", {}, m.content);
+      const p = h("p", {}, ...renderMentions(m.content, opts.people, (pill, user) => mentionMenu(pill, user)));
       if (m.editedAt) {
         p.append(" ", h("span", { class: "edited", title: full(new Date(m.editedAt)) }, "(edited)"));
       }
@@ -215,8 +226,22 @@ export function createMessageList(me: Me, opts: Options) {
     return nodes;
   }
 
+  // A mention pill opens the same menu as the person's name: on right click, on click, or with Enter.
+  function mentionMenu(pill: HTMLElement, user: Author) {
+    pill.tabIndex = 0;
+    pill.setAttribute("role", "button");
+    attachMenu(pill, () => opts.authorMenu(user));
+    pill.addEventListener("click", (e) => openMenu(e.clientX, e.clientY, opts.authorMenu(user)));
+    pill.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      const r = pill.getBoundingClientRect();
+      openMenu(r.left, r.bottom, opts.authorMenu(user), true);
+    });
+  }
+
   function messageMenu(m: Message): MenuItem[] {
-    const items: MenuItem[] = [{ label: "Copy text", action: () => copyText(m.content) }];
+    const items: MenuItem[] = [{ label: "Copy text", action: () => copyText(plainText(m.content, opts.people)) }];
     if (m.author.id === me.id) {
       // The row may have been re-rendered or removed since the menu opened.
       const live = () => messages.find((x) => x.id === m.id);
@@ -232,7 +257,7 @@ export function createMessageList(me: Me, opts: Options) {
     const date = new Date(m.createdAt);
     const mine = m.author.id === me.id;
     const row = h("div", {
-      class: `msg${cont ? " cont" : ""}${confirmDelete?.id === m.id ? " confirming" : ""}${editing?.id === m.id ? " editing" : ""}`,
+      class: `msg${cont ? " cont" : ""}${confirmDelete?.id === m.id ? " confirming" : ""}${editing?.id === m.id ? " editing" : ""}${mentionsMe(m, me.id) ? " mentioned" : ""}`,
     });
     const timeEl = h("time", { datetime: m.createdAt, title: full(date) }, cont ? clock(date) : stamp(date));
     if (cont) {
@@ -313,7 +338,10 @@ export function createMessageList(me: Me, opts: Options) {
     const before = messages.length;
     messages = messages.filter((m) => m.id !== id);
     if (messages.length === before) return;
-    if (editing?.id === id) editing = null;
+    if (editing?.id === id) {
+      editing.picker.close();
+      editing = null;
+    }
     if (confirmDelete?.id === id) clearConfirm();
     if (rowError?.id === id) rowError = null;
     render("auto");
@@ -329,6 +357,7 @@ export function createMessageList(me: Me, opts: Options) {
       hasMore = false;
       loadError = null;
       loadingOlder = false;
+      editing?.picker.close();
       editing = null;
       rowError = null;
       clearConfirm();
@@ -349,9 +378,17 @@ export function createMessageList(me: Me, opts: Options) {
       loading = true;
       await loadLatest(gen);
       if (gen !== generation) return;
-      if (editing && !messages.some((m) => m.id === editing!.id)) editing = null;
+      if (editing && !messages.some((m) => m.id === editing!.id)) {
+        editing.picker.close();
+        editing = null;
+      }
       render("auto");
       fillScreen();
+    },
+
+    // Members loaded or changed, so mention names may read differently now.
+    refresh() {
+      render("auto");
     },
 
     // Channel name or topic changed.

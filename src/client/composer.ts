@@ -1,6 +1,8 @@
 import { channelLabel } from "./channels.ts";
 import { autosize, h, icon } from "./dom.ts";
-import type { Channel } from "./types.ts";
+import { attachMentionPicker } from "./mention-picker.ts";
+import { closeTab, hasEveryone } from "./mentions.ts";
+import type { Channel, Member } from "./types.ts";
 
 const TYPING_SEND_EVERY = 3000;
 const TYPING_SHOW_FOR = 5000;
@@ -8,6 +10,8 @@ const TYPING_SHOW_FOR = 5000;
 type Options = {
   send: (channelId: string, content: string) => Promise<void>;
   typing: (channelId: string) => void;
+  // Who can be @mentioned in the open channel.
+  candidates: () => Member[];
 };
 
 export function createComposer(opts: Options) {
@@ -15,7 +19,10 @@ export function createComposer(opts: Options) {
   const sendBtn = h("button", { class: "icon-btn", title: "Send", "aria-label": "Send" }, icon("send"));
   const error = h("div", { class: "composer-error", role: "alert" });
   const typingEl = h("div", { class: "typing", "aria-live": "polite" });
-  const el = h("div", { class: "composer" }, h("div", { class: "composer-box" }, box, sendBtn), error, typingEl);
+  const boxRow = h("div", { class: "composer-box" }, box, sendBtn);
+  const el = h("div", { class: "composer" }, boxRow, error, typingEl);
+  // Before our own keydown handler, so Enter picks a name instead of sending.
+  const picker = attachMentionPicker(box, { candidates: opts.candidates, anchor: boxRow });
 
   let channel: Channel | null = null;
   let sending = false;
@@ -31,8 +38,9 @@ export function createComposer(opts: Options) {
 
   async function submit() {
     if (!channel || sending) return;
-    const content = box.value.trim();
+    const content = picker.toContent(box.value.trim());
     if (!content) return;
+    if (hasEveryone(content)) return closeTab();
     const channelId = channel.id;
     sending = true;
     box.disabled = true;
@@ -40,7 +48,10 @@ export function createComposer(opts: Options) {
     setError("");
     try {
       await opts.send(channelId, content);
-      if (channel?.id === channelId) box.value = "";
+      if (channel?.id === channelId) {
+        box.value = "";
+        picker.reset();
+      }
       drafts.delete(channelId);
       lastTypingSent = 0;
     } catch (err) {
@@ -98,6 +109,7 @@ export function createComposer(opts: Options) {
 
     setChannel(next: Channel | null) {
       if (channel) drafts.set(channel.id, box.value);
+      picker.close();
       channel = next;
       box.value = next ? (drafts.get(next.id) ?? "") : "";
       box.placeholder = next ? `Message ${channelLabel(next)}` : "No channel";

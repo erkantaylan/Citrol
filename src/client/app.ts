@@ -4,6 +4,7 @@ import { createComposer } from "./composer.ts";
 import type { MenuItem } from "./context-menu.ts";
 import { avatar, h, icon } from "./dom.ts";
 import { createMemberList } from "./members.ts";
+import { mentionable, mentionsMe, plainText } from "./mentions.ts";
 import { createMessageList } from "./messages.ts";
 import { createNotifyButton, dismiss, notify } from "./notify.ts";
 import { createSidebar } from "./sidebar.ts";
@@ -49,10 +50,15 @@ export async function startApp(root: HTMLElement, me: Me) {
     },
     tools: [createNotifyButton()],
   });
-  const messages = createMessageList(me, { authorMenu: memberMenu });
+  // The user behind a mention token; a DM partner counts even before the member list has loaded.
+  const person = (id: string): Author | undefined =>
+    members.get(id) ?? (id === me.id ? me : store.dms.find((c) => c.other?.id === id)?.other ?? undefined);
+  const candidates = () => mentionable(current, me.id, members.list());
+  const messages = createMessageList(me, { authorMenu: memberMenu, people: person, candidates });
   const composer = createComposer({
     send: async (channelId, content) => messages.add(await api.send(channelId, content)),
     typing: (channelId) => socket.send({ type: "typing", channelId }),
+    candidates,
   });
   const members = createMemberList({ me, open: (m) => void openDm(m), menu: memberMenu });
 
@@ -77,7 +83,7 @@ export async function startApp(root: HTMLElement, me: Me) {
   );
 
   function renderTitle() {
-    const unread = store.dmUnread();
+    const unread = store.dmUnread() + store.textMentions();
     const where = current ? `${channelLabel(current)} · ` : "";
     document.title = `${unread ? `(${unread}) ` : ""}${where}Citrol`;
   }
@@ -130,8 +136,9 @@ export async function startApp(root: HTMLElement, me: Me) {
 
   function markRead(c: Channel) {
     dismiss(c.id);
-    if (c.unreadCount !== 0) {
+    if (c.unreadCount !== 0 || c.mentionCount !== 0) {
       c.unreadCount = 0;
+      c.mentionCount = 0;
       renderSidebar();
     }
     if (!c.lastMessageId) return;
@@ -194,15 +201,18 @@ export async function startApp(root: HTMLElement, me: Me) {
 
   async function loadMembers() {
     members.set(await api.members());
+    messages.refresh();
   }
 
   // ---------- live events ----------
+  // Every DM message, and in text channels the ones that mention me.
   function maybeNotify(c: Channel, m: Message) {
-    if (c.kind !== "dm" || m.author.id === me.id) return;
+    if (m.author.id === me.id) return;
+    if (c.kind !== "dm" && !mentionsMe(m, me.id)) return;
     if (!document.hidden && current?.id === c.id) return;
     notify({
-      title: m.author.displayName,
-      body: m.content,
+      title: c.kind === "dm" ? m.author.displayName : `#${c.name ?? ""} · ${m.author.displayName}`,
+      body: plainText(m.content, person),
       icon: m.author.avatarUrl,
       tag: c.id,
       onClick: () => select(store.find(c.id) ?? c),
@@ -222,7 +232,10 @@ export async function startApp(root: HTMLElement, me: Me) {
     }
     store.touch(c, m.id);
     if (c.id === current?.id) messages.add(m);
-    if (m.author.id !== me.id) c.unreadCount++;
+    if (m.author.id !== me.id) {
+      c.unreadCount++;
+      if (mentionsMe(m, me.id)) c.mentionCount++;
+    }
     renderSidebar();
     readIfLooking();
     maybeNotify(c, m);
@@ -258,15 +271,20 @@ export async function startApp(root: HTMLElement, me: Me) {
         // Newer messages may have come in since; then only the server knows how many.
         if (e.messageId === c.lastMessageId) {
           c.unreadCount = 0;
+          c.mentionCount = 0;
           renderSidebar();
         } else {
           void loadChannels().catch(() => {});
         }
         break;
       }
-      case "presence":
+      case "presence": {
+        const isNew = !members.get(e.userId);
         if (!members.presence(e.userId, e.online, e.member)) void loadMembers().catch(() => {});
+        // Mentions of someone we just learned about can show their name now.
+        else if (isNew) messages.refresh();
         break;
+      }
       case "typing":
         if (e.userId !== me.id) composer.typing(e.channelId, e.userId, e.displayName);
         break;

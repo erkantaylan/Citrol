@@ -20,19 +20,27 @@ type Channel = {
   createdAt: string;
   lastMessageId: string | null;
   unreadCount: number;      // messages from others newer than what I've read
+  mentionCount: number;     // of those, the ones that mention me
 };
 
 type Message = {
   id: string;
   channelId: string;
   author: Author;
-  content: string;
+  content: string;          // may contain mention tokens, see "Mentions"
+  mentions: string[];       // ids of the users mentioned, no duplicates
   createdAt: string;
   editedAt: string | null;
 };
 
 type Member = Author & { online: boolean };
 ```
+
+## Mentions
+
+A mention is stored in `content` as the token `<@USER_ID>`, for example `hi <@1002>!`, so it keeps pointing at the right person when they change their name. The browser shows it as `@displayName`.
+
+On send and edit, the server finds the tokens, keeps only ids of users that exist (an unknown id stays in the text but isn't a mention), and returns them in `mentions`. Mentioning yourself doesn't count. In a DM, only the other member can be mentioned. There is no `@everyone`: the browser refuses to send it and closes the sender's tab instead (a class joke; it is enforced only in the browser).
 
 ## REST
 

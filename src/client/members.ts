@@ -43,6 +43,9 @@ export function createMemberList(opts: Options) {
   return {
     el,
 
+    get: (id: string) => members.get(id),
+    list: () => [...members.values()],
+
     set(list: Member[]) {
       members.clear();
       for (const m of list) members.set(m.id, m);
